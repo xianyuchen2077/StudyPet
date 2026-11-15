@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+  <title>StudyPet · 学习面板</title>
+  <link rel="stylesheet" href="panel.css">
+  <link rel="stylesheet" href="os-material.css">
+  <link rel="stylesheet" href="ai-assist.css">
+  <link rel="stylesheet" href="cases.css">
+  <script src="art.js" defer></script>
+  <script src="os-material.js" defer></script>
+  <script src="ai-assist.js" defer></script>
+  <script src="materials/catalog.js" defer></script>
+  <script src="cases.js" defer></script>
+  <script src="panel.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">◇</span> StudyPet <span class="badge">演示</span></div>
+    <div class="top-status"><span id="record-state">模拟记录关闭</span><span class="separator" aria-hidden="true">·</span><span id="round-state">慢慢开始就好</span></div>
+  </header>
+  <nav aria-label="学习面板">
+    <button type="button" data-nav="home" aria-current="page">开始</button>
+    <button type="button" data-nav="tasks">我的任务</button>
+    <button type="button" data-nav="feedback">学习反馈</button>
+    <button type="button" class="nav-settings" data-nav="preferences">设置</button>
+  </nav>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+  <div id="invitation" class="invitation" aria-live="polite" hidden></div>
+  <main id="main" tabindex="-1" aria-label="学习内容"><div class="loading">正在打开学习面板……</div></main>
+  <div id="overlay"></div>
+</body>
+</html>

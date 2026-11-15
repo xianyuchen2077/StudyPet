@@ -1,0 +1,103 @@
+{
+  "name": "ai-desktop-pet",
+  "productName": "Yuns桌面助手",
+  "version": "2.4.0",
+  "description": "StudyPet 元认知学习桌宠：HCI课件与控制作业的分块学习模拟演示",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron . --study-demo",
+    "dev": "electron . --study-demo --dev",
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable",
+    "build:all": "electron-builder --win --x64",
+    "menu:hide": "node toggle-menu.js hide",
+    "menu:minimal": "node toggle-menu.js minimal",
+    "menu:custom": "node toggle-menu.js custom",
+    "study": "electron . --study-demo",
+    "classic": "electron . --classic",
+    "test:study": "node --test test/study-engine.test.cjs test/study-windows.test.cjs test/study-preload.test.cjs test/study-content.test.cjs test/study-ai.test.cjs test/study-ai-engine.test.cjs test/study-ai-ipc.test.cjs test/study-cases.test.cjs",
+    "test:ai": "node --test test/study-ai.test.cjs test/study-ai-engine.test.cjs test/study-ai-ipc.test.cjs",
+    "test:cases": "node --test test/study-cases.test.cjs"
+  },
+  "keywords": [
+    "ai",
+    "desktop-pet",
+    "deepseek",
+    "gemini",
+    "vision",
+    "mcp",
+    "function-calling"
+  ],
+  "author": {
+    "name": "齐匀升",
+    "email": "qiyunsheng919@gmail.com",
+    "url": "https://github.com/JianguSheng"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "axios": "^1.6.0",
+    "electron-store": "^8.1.0",
+    "express": "^4.18.2",
+    "https-proxy-agent": "^7.0.6"
+  },
+  "build": {
+    "appId": "com.studypet.learning-demo",
+    "productName": "StudyPet",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "config.js",
+      "store.js",
+      "api-service.js",
+      "mcp-client.js",
+      "proxy-server.js",
+      "proxy-key-manager.js",
+      "package.json",
+      "renderer/**/*",
+      "assets/shiba.jpg",
+      "assets/icon.png",
+      "node_modules/**/*",
+      "!node_modules/.cache/**",
+      "!**/*.md",
+      "!**/test/**",
+      "!**/*.map",
+      "study/**/*",
+      "LICENSE"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Yuns桌面助手",
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "language": "2052"
+    },
+    "portable": {
+      "artifactName": "StudyPet-portable.exe"
+    }
+  }
+}
