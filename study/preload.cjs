@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('studyAPI',Object.freeze({
   onNavigate:callback=>listen('study:navigate',callback),
   openPanel:target=>ipcRenderer.send('study:open-panel',target),
   showPetMenu:()=>ipcRenderer.send('study:pet-menu'),
+  startPetDrag:()=>ipcRenderer.send('study:pet-drag-start'),
+  endPetDrag:()=>ipcRenderer.send('study:pet-drag-end'),
   getAISettings:()=>ipcRenderer.invoke('study:ai-settings'),
   saveAISettings:settings=>ipcRenderer.invoke('study:ai-save-settings',settings),
   requestAI:input=>ipcRenderer.invoke('study:ai-request',input),

@@ -38,7 +38,7 @@
       ?{action:'case-show-plan',title:`${tag} · 第 1 步`,text:'大纲已经生成。点这里查看，再在下一页点「采用大纲」。',key:key('plan-view')}
       :{action:'case-generate',title:`${tag} · 第 1 步`,text:'先点这个按钮：把材料拆成学习大纲。',key:key('intro')};
   }
-  if(local.screen==='plan')return {action:'case-confirm',title:`${tag} · 第 1 步（最后一下）`,text:'选好想先学的一块，再点这个按钮采用大纲。',key:key('confirm')};
+  if(local.screen==='plan')return {action:'case-confirm',title:`${tag} · 第 1 步`,text:'选好想先学的一块，再点这个按钮采用大纲。',key:key('confirm')};
   if(local.screen==='study'){
     const r=round(t),v=step(t);
     if(!r||r.status!=='running')return {action:'case-start',title:`${tag} · 第 2 步`,text:'点这里开始这一小步。',key:key('start')};
@@ -123,3 +123,4 @@
  }
  window.StudyPetCases={create};
 })();
+
