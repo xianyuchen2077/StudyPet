@@ -13,15 +13,35 @@ function createStudyEngine({read=async()=>null,write=async()=>{},now=()=>new Dat
   let sequence=0,activeSequence=0,safety=[];
   const stamp=()=>now();
   const id=()=>randomUUID();
-  function snapshot() {return {...clone(state),runtime:clone(runtime)};}
+  const TUTORIAL_CASES=['hci','control'];
+  // 引导进度完全由已有状态推导，不再单独记一份，避免和任务/回顾不同步。
+  function tutorialProgress(s) {
+    const cases={};
+    for(const caseId of TUTORIAL_CASES) {
+      const t=s.tasks.find(x=>x.caseId===caseId)||null;
+      const plan=!!t,step=!!t&&t.steps.some(v=>v.completed),review=!!t&&s.reflections.some(r=>r.taskId===t.id&&r.moduleId);
+      cases[caseId]={plan,step,review,done:plan&&step&&review,moduleCount:t?.modules?.length||0,reviewedCount:t?t.modules.filter(m=>['reviewed','needs-review'].includes(m.status)).length:0};
+    }
+    return {cases,allDone:TUTORIAL_CASES.every(k=>cases[k].done),completedAt:s.onboarding?.completedAt||null,skipped:!!s.onboarding?.skipped};
+  }
+  function finishOnboarding(s,skipped=false) {
+    s.onboarding={...(s.onboarding||{}),version:1,completedAt:stamp(),skipped};
+    // 演示任务留作“教程案例”回看，但不再自动占据当前任务。
+    for(const t of s.tasks)if(t.caseId)t.tutorial=true;
+    if(s.tasks.find(t=>t.id===s.activeTaskId)?.caseId)s.activeTaskId=null;
+    clearInvitation(s);if(s.focus)s.focus.alert=null;
+  }
+  function snapshot() {return {...clone(state),runtime:{...clone(runtime),tutorial:tutorialProgress(state)}};}
   function emit() {onChange(snapshot());}
   function task(s,p={}) {const t=s.tasks.find(x=>x.id===(p.taskId||s.activeTaskId));if(!t)throw issue('先选择一个学习任务');return t;}
   function step(t,stepId) {const v=t.steps.find(x=>x.id===(stepId||t.currentStepId));if(!v)throw issue('请先选一条自己认可的小步');return v;}
   function round(s,taskId) {return [...s.rounds].reverse().find(r=>r.taskId===taskId&&r.status!=='ended');}
+  function runningPair(s) {const t=s.tasks.find(x=>x.id===s.activeTaskId);if(!t||t.status==='completed')return null;const r=[...s.rounds].reverse().find(r=>r.taskId===t.id&&r.status==='running');return r?{t,r}:null;}
+  function focusSuppressed(reason){return {ok:true,state:snapshot(),data:{suppressed:reason}};}
   function checkpoint(t) {const v=t.steps.find(x=>x.id===t.currentStepId);return {position:t.material.position||'位置还没有填写',nextAction:(v&&t.checkpoint?.stepId===v.id?t.checkpoint.nextAction:v?.text)||'下一步还没定',stepId:v?.id||null,source:'我主动留下',confirmedAt:stamp(),...(t.caseId?{moduleId:t.currentModuleId,page:t.material.page}:{})};}
-  function stopRound(s,r,ended=false) {if(!r)return; r.status=ended?'ended':'paused';if(ended)r.endedAt=stamp();else r.pausedAt=stamp();const t=s.tasks.find(x=>x.id===r.taskId);if(t){t.checkpoint=checkpoint(t);const m=t.modules?.find(m=>m.id===t.currentModuleId);if(m){m.checkpoint=clone(t.checkpoint);m.bookmarkPage=t.material.page;m.currentStepId=t.currentStepId;}}}
+  function stopRound(s,r,ended=false) {if(!r)return; r.status=ended?'ended':'paused';if(ended)r.endedAt=stamp();else r.pausedAt=stamp();const t=s.tasks.find(x=>x.id===r.taskId);if(t){t.checkpoint=checkpoint(t);const m=t.modules?.find(m=>m.id===t.currentModuleId);if(m){m.checkpoint=clone(t.checkpoint);m.bookmarkPage=t.material.page;m.currentStepId=t.currentStepId;}}if(s.focus)s.focus.alert=null;}
   function clearInvitation(s) {if(s.invitation&&!s.consumedInvitations.includes(s.invitation.key))s.consumedInvitations.push(s.invitation.key);s.invitation=null;}
-  function clearInvalidInvitation(s) {if(s.invitation&&(!s.prefs.invitations||s.prefs.quiet||!s.prefs.nodes[s.invitation.node]))clearInvitation(s);}
+  function clearInvalidInvitation(s) {if(s.focus?.alert&&(!s.focus.enabled||s.prefs.quiet))s.focus.alert=null;if(s.invitation&&(!s.prefs.invitations||s.prefs.quiet||!s.prefs.nodes[s.invitation.node]))clearInvitation(s);}
   function retainMaterialPosition(s,p) {
     if(!['practice','tutorial'].includes(p.materialId)||!text(p.position,1000))return;
     const t=s.tasks.find(t=>t.id===(p.taskId||s.activeTaskId));if(!t)return;
@@ -114,7 +134,7 @@ function createStudyEngine({read=async()=>null,write=async()=>{},now=()=>new Dat
     s.reflectionDrafts[t.id]=d;return d;
   }
   function maybeInvite(s,node) {
-    if(!s.prefs.invitations||s.prefs.quiet||!s.prefs.nodes[node]||s.invitation||['reflection','guide','plan','editor'].includes(runtime.view))return;
+    if(!s.prefs.invitations||s.prefs.quiet||!s.prefs.nodes[node]||s.invitation||s.focus?.alert||['reflection','guide','plan','editor'].includes(runtime.view))return;
     const t=s.tasks.find(t=>t.id===s.activeTaskId);if(!t)return;
     const r=[...s.rounds].reverse().find(r=>r.taskId===t.id);
     if(!r||(node==='stage'&&r.status!=='running')||(node==='resume'&&r.status!=='paused')||(node==='end'&&r.status!=='ended'))return;
@@ -196,7 +216,7 @@ function createStudyEngine({read=async()=>null,write=async()=>{},now=()=>new Dat
       if(t.caseId&&r&&r.moduleId!==t.currentModuleId){r.status='ended';r.endedAt=stamp();r=null;}
       if(r?.status==='running')return {ok:true,state:snapshot()};
       if(r){r.status='running';r.resumedAt=stamp();}
-      else {r={id:id(),taskId:t.id,...(t.caseId?{moduleId:t.currentModuleId}:{}),status:'running',startedAt:stamp(),pausedAt:null,endedAt:null,source:'user'};next.rounds.push(r);}
+      else {r={id:id(),taskId:t.id,...(t.caseId?{moduleId:t.currentModuleId}:{}),status:'running',startedAt:stamp(),pausedAt:null,endedAt:null,source:'user',focusPrompts:0};next.rounds.push(r);next.focus.alert=null;next.focus.snoozeUntil=null;next.focus.muteRoundId=null;}
       if(t.caseId){const m=t.modules.find(m=>m.id===t.currentModuleId);if(m.status==='pending')m.status='learning';}
       t.status='active';t.currentStepId=v.id;next.activeTaskId=t.id;clearInvitation(next);return commit(next,{kind:'round'});
     }
@@ -312,6 +332,71 @@ function createStudyEngine({read=async()=>null,write=async()=>{},now=()=>new Dat
       clearInvalidInvitation(safe);
       return commit(next,{kind:'prefs',stopImmediately:stopping,stopState:safe});
     }
+    if(action==='onboarding.complete') {
+      if(next.onboarding?.completedAt)return {ok:true,state:snapshot()};
+      if(!tutorialProgress(next).allDone)throw issue('还有演示案例没走完：两份材料都要采用大纲、完成至少一小步，并保存一块回顾。','ONBOARDING_INCOMPLETE');
+      finishOnboarding(next,false);
+      return commit(next,{kind:'onboarding'});
+    }
+    if(action==='onboarding.skip') {
+      if(next.onboarding?.completedAt)return {ok:true,state:snapshot()};
+      finishOnboarding(next,true);
+      return commit(next,{kind:'onboarding'});
+    }
+    if(action==='onboarding.reset') {
+      next.onboarding={...(next.onboarding||{}),version:1,completedAt:null,skipped:false};
+      return commit(next,{kind:'onboarding'});
+    }
+    if(action==='focus.update') {
+      const f=next.focus;
+      if(typeof p.enabled==='boolean')f.enabled=p.enabled;
+      for(const [key,min,max] of [['thresholdSec',5,180],['cooldownSec',30,900],['maxPerRound',1,10]])if(Number.isFinite(p[key]))f[key]=Math.min(max,Math.max(min,Math.round(p[key])));
+      if(!f.enabled)f.alert=null;
+      return commit(next,{kind:'prefs'});
+    }
+    if(action==='focus.clear') {next.focus.records=[];next.focus.alert=null;next.focus.snoozeUntil=null;next.focus.muteRoundId=null;next.focus.muteUntil=null;next.focus.idlePrompts=0;return commit(next,{kind:'focus'});}
+    if(action==='focus.candidate'||action==='focus.demo') {
+      const demo=action==='focus.demo',f=next.focus,nowMs=Date.parse(stamp());
+      const pair=runningPair(next);
+      const label=text(p.label,40)||text(p.app,40)||'娱乐页面';
+      const seconds=Number.isFinite(p.seconds)?Math.max(0,Math.min(3600,Math.round(p.seconds))):f.thresholdSec;
+      if(!f.enabled&&!demo)return focusSuppressed('disabled');
+      if(next.prefs.quiet&&!demo)return focusSuppressed('quiet');
+      if(f.alert)return focusSuppressed('pending');
+      if(!demo) {
+        if(f.snoozeUntil&&nowMs<Date.parse(f.snoozeUntil))return focusSuppressed('snooze');
+        if(f.muteUntil&&nowMs<Date.parse(f.muteUntil))return focusSuppressed('muted');
+        if(f.lastPromptAt&&nowMs<Date.parse(f.lastPromptAt)+f.cooldownSec*1000)return focusSuppressed('cooldown');
+        if(pair&&f.muteRoundId===pair.r.id)return focusSuppressed('muted');
+        if(pair&&(pair.r.focusPrompts||0)>=f.maxPerRound)return focusSuppressed('limit');
+        // 没在学习轮次时也提醒，但要求停留更久，避免刚开始找资料就被打断。
+        if(!pair&&seconds<Math.max(f.thresholdSec*3,60))return focusSuppressed('short');
+      }
+      const alertId=id();
+      const taskId=pair?pair.t.id:(next.activeTaskId||null);
+      const roundId=pair?pair.r.id:null;
+      f.alert={id:alertId,app:text(p.app,40)||'other',label,seconds,taskId,roundId,mode:pair?'round':'idle',createdAt:stamp(),source:demo?'demo':'watch',
+        message:pair?`你在「${label}」停留了约 ${seconds} 秒。要回到「${pair.t.title}」这一步吗？`
+          :`你在「${label}」停留了约 ${seconds} 秒，这一轮还没开始。要先挑一条最小的小步吗？`};
+      f.lastPromptAt=stamp();
+      f.records=[{id:alertId,taskId,roundId,app:f.alert.app,label,seconds,at:stamp(),response:null,source:f.alert.source},...f.records].slice(0,50);
+      if(pair)pair.r.focusPrompts=(pair.r.focusPrompts||0)+1;else f.idlePrompts=(f.idlePrompts||0)+1;
+      return commit(next,{kind:demo?'demo':'focus'});
+    }
+    if(action==='focus.respond') {
+      const alert=next.focus.alert;if(!alert)throw issue('现在没有待回应的专注提醒','NO_FOCUS_ALERT');
+      if(!['back','snooze','ignore'].includes(p.response))throw issue('请选择如何回应专注提醒');
+      const record=next.focus.records.find(x=>x.id===alert.id);if(record)record.response=p.response;
+      const nowMs=Date.parse(stamp());
+      if(p.response==='snooze')next.focus.snoozeUntil=new Date(nowMs+5*60000).toISOString();
+      if(p.response==='ignore'){
+        if(alert.roundId)next.focus.muteRoundId=alert.roundId;
+        else next.focus.muteUntil=new Date(nowMs+15*60000).toISOString();
+      }
+      if(p.response==='back'){next.focus.snoozeUntil=null;next.focus.muteRoundId=null;next.focus.muteUntil=null;}
+      next.focus.alert=null;
+      const result=await commit(next,{kind:'focus'});result.data={roundId:alert.roundId,response:p.response,mode:alert.mode};return result;
+    }
     if(action==='demo.event') {
       const t=next.tasks.find(t=>t.id===next.activeTaskId),r=t&&round(next,t.id);
       if(!t||r?.status!=='running'||!next.prefs.recording||next.prefs.recordingPaused)return {ok:true,state:snapshot()};
@@ -338,6 +423,11 @@ function createStudyEngine({read=async()=>null,write=async()=>{},now=()=>new Dat
       const saved=await read();
       if(saved&&saved.schemaVersion===1&&Array.isArray(saved.tasks)&&Array.isArray(saved.rounds)) {
         state={...emptyState(),...clone(saved)};state.prefs={...emptyState().prefs,...state.prefs,nodes:{...emptyState().prefs.nodes,...state.prefs?.nodes}};
+        state.focus={...emptyState().focus,...(state.focus||{})};
+        state.onboarding={...emptyState().onboarding,...(state.onboarding||{})};
+        if(!Array.isArray(state.focus.records))state.focus.records=[];
+        // A reminder from a previous run is stale: the round it belonged to is gone.
+        if(state.focus.alert){state.focus.alert=null;}
         let changed=false;
         for(const r of state.rounds)if(r.status==='running'){stopRound(state,r);changed=true;}
         if(state.invitation){clearInvitation(state);changed=true;}

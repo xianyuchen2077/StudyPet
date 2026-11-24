@@ -15,7 +15,7 @@
     "menu:custom": "node toggle-menu.js custom",
     "study": "electron . --study-demo",
     "classic": "electron . --classic",
-    "test:study": "node --test test/study-engine.test.cjs test/study-windows.test.cjs test/study-preload.test.cjs test/study-content.test.cjs test/study-ai.test.cjs test/study-ai-engine.test.cjs test/study-ai-ipc.test.cjs test/study-cases.test.cjs",
+    "test:study": "node --test test/study-engine.test.cjs test/study-windows.test.cjs test/study-preload.test.cjs test/study-content.test.cjs test/study-ai.test.cjs test/study-ai-engine.test.cjs test/study-ai-ipc.test.cjs test/study-cases.test.cjs test/study-focus.test.cjs test/study-onboarding.test.cjs",
     "test:ai": "node --test test/study-ai.test.cjs test/study-ai-engine.test.cjs test/study-ai-ipc.test.cjs",
     "test:cases": "node --test test/study-cases.test.cjs"
   },
