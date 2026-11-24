@@ -28,7 +28,7 @@ async function startStudyApp() {
   const aiService=createAIService({settings:aiSettings});
   let exitAllowed=false,quitting=false,inviteTimer=null,inviteKey=null,focusTimer=null,focusAlertId=null,watchRunning=false,watchStatus={kind:'stopped',label:'监测已暂停'};
   const targets=new Set(['home','guide','plan','study','resume','tasks','feedback','reflection','preferences','case']);
-  const windows=createStudyWindows({BrowserWindow,screen,Menu,rootDir,testMode,alwaysOnTop:store.get('alwaysOnTop',false),onCloseRequest:reason=>requestClose(reason),onQuit:()=>requestClose('quit')});
+  const windows=createStudyWindows({BrowserWindow,screen,Menu,rootDir,testMode,alwaysOnTop:store.get('alwaysOnTop',false),onCloseRequest:reason=>requestClose(reason),onQuit:()=>requestClose('quit'),onToggleFocus:()=>engine.dispatch('focus.update',{enabled:!engine.snapshot().focus?.enabled})});
   const focusWatch=createFocusWatch({
     scriptPath:path.join(__dirname,'focus-sampler.ps1'),
     autoStart:false,
@@ -97,6 +97,8 @@ async function startStudyApp() {
     windows.openPanel(target===undefined?(panel&&!panel.isDestroyed()?null:restored):(targets.has(target)?target:'home'));
   });
   ipcMain.on('study:pet-menu',event=>{if(owned(event))windows.showPetMenu();});
+  ipcMain.on('study:pet-drag-start',event=>{if(owned(event))windows.startPetDrag();});
+  ipcMain.on('study:pet-drag-end',event=>{if(owned(event))windows.endPetDrag();});
   ipcMain.handle('study:close-ready',async(event,options={})=>{
     if(!owned(event))return senderError();
     aiService.cancel();

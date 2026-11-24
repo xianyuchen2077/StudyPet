@@ -97,13 +97,22 @@
     const first=tutorial()?.cases?.hci?.done?2:1,id=first===1?'hci':'control';
     return {selector:`[data-action="case-open"][data-case-id="${id}"]`,title:`新手引导 · 案例 ${first}/2`,text:'点这张卡上的按钮开始。进入案例后，高亮框会一直指出下一步点哪里。',key:`home:${first}`};
   }
-  function positionCoach(){
+  function positionCoach({scroll=true}={}){
     if(!state){removeCoach();return;}
     const info=(!ui.modal&&!ui.editor&&!ai.hasPreview()&&onboardingActive())?(ui.view==='case'?cases.coach?.():homeCoach()):null;
     const target=info?main.querySelector(info.selector||`[data-action="${info.action}"]`):null;
     if(!info||!target){removeCoach();return;}
     const ring=coachEl('coach-ring','coach-ring'),bubble=coachEl('coach-bubble','coach-bubble');
-    if(info.key!==coachKey){coachKey=info.key;target.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'});}
+    const needsScroll=()=>{const box=target.getBoundingClientRect();return box.top<24||box.bottom>window.innerHeight-24;};
+    if(info.key!==coachKey){coachKey=info.key;coachTries=0;}
+    if(scroll&&needsScroll()&&coachTries<4){
+      coachTries++;
+      const box=target.getBoundingClientRect();
+      // 直接改 #main 的滚动位置，比 scrollIntoView 更可控（不会被页面自身的内边距吞掉）
+      main.scrollTop+=box.top-(window.innerHeight-box.height)/2;
+      clearTimeout(coachTimer);
+      coachTimer=setTimeout(()=>positionCoach({scroll:true}),200);
+    }
     const rect=target.getBoundingClientRect(),pad=7;
     Object.assign(ring.style,{left:(rect.left-pad)+'px',top:(rect.top-pad)+'px',width:(rect.width+pad*2)+'px',height:(rect.height+pad*2)+'px'});
     ring.hidden=false;
@@ -113,12 +122,28 @@
       bubble.innerHTML=`<div class="coach-title">${e(info.title)}</div><p>${e(info.text)}</p><div class="coach-actions">${button('跳过引导，直接使用','onboarding-skip',{link:true,safe:true})}</div>`;
     }
     bubble.hidden=false;
-    const width=Math.min(340,Math.max(240,rect.width+40));
+    const width=Math.min(360,Math.max(280,rect.width+40));
     bubble.style.width=width+'px';
-    const height=bubble.offsetHeight||110;
-    let top=rect.bottom+16,left=rect.left+rect.width/2-width/2;
-    if(top+height>window.innerHeight-14)top=Math.max(14,rect.top-height-16);
+    const height=bubble.offsetHeight||110,gap=16;
+    let top=0,left=0,place='below';
+    const rightRoom=window.innerWidth-(rect.right+gap)-14,leftRoom=rect.left-gap-14;
+    if(rightRoom>=width||leftRoom>=width){
+      // 优先放在按钮旁边，尽量不遮住正文
+      place=rightRoom>=width?'right':'left';
+      left=place==='right'?rect.right+gap:rect.left-gap-width;
+      top=rect.top+rect.height/2-height/2;
+      const tipY=rect.top+rect.height/2-top;
+      bubble.style.setProperty('--tip-y',Math.max(16,Math.min(height-16,tipY)).toFixed(0)+'px');
+    }else{
+      top=rect.bottom+gap;
+      left=rect.left+rect.width/2-width/2;
+      if(top+height>window.innerHeight-14){top=Math.max(14,rect.top-height-gap);place='above';}
+      const tip=rect.left+rect.width/2-left;
+      bubble.style.setProperty('--tip-x',Math.max(20,Math.min(width-20,tip)).toFixed(0)+'px');
+    }
+    top=Math.max(14,Math.min(window.innerHeight-height-14,top));
     left=Math.max(14,Math.min(window.innerWidth-width-14,left));
+    bubble.dataset.place=place;
     bubble.style.left=left+'px';bubble.style.top=top+'px';
   }
   function tutorialCaseCard(id,title,note,order,primary) {
@@ -362,7 +387,7 @@
     if(ui.view==='reflection'&&activeTask()?.caseId)cases.prepareReview();
     if(ui.view==='guide'||ui.view==='plan')ensureStartup();
     if(ui.view==='study'&&activeTask())ui.materialTab=activeTask().material.id;
-    render();if(resetScroll)main.scrollTop=0;setContext();
+    render();if(resetScroll)main.scrollTop=0;positionCoach({scroll:true});setContext();
   }
   function scheduleDraft() {
     clearTimeout(ui.draftTimer);
@@ -734,8 +759,8 @@
     }
   });
   let coachFrame=null;
-  main.addEventListener('scroll',()=>{if(coachFrame)return;coachFrame=requestAnimationFrame(()=>{coachFrame=null;positionCoach();});},{passive:true});
-  window.addEventListener('resize',()=>positionCoach());
+  main.addEventListener('scroll',()=>{if(coachFrame)return;coachFrame=requestAnimationFrame(()=>{coachFrame=null;positionCoach({scroll:false});});},{passive:true});
+  window.addEventListener('resize',()=>positionCoach({scroll:false}));
   if(!api){main.innerHTML='<div class="error">学习面板暂时没有连接成功。请重新从 StudyPet 打开。</div>';return;}
   ai.init();
   api.onState(next=>{
