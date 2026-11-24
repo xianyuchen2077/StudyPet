@@ -42,10 +42,17 @@ function createStudyWindows({BrowserWindow,screen,Menu,rootDir,testMode=false,al
   function publish(state) {
     lastState=state;
     if(alive(pet)) {
-      const old=pet.getBounds(),width=state.invitation?380:210,height=state.invitation?350:230;
+      const alert=!!state.focus?.alert;
+      const old=pet.getBounds(),width=state.invitation?380:alert?400:210,height=state.invitation?350:alert?360:230;
       if(Math.abs(old.width-width)>1||Math.abs(old.height-height)>1) {
         const work=screen.getDisplayMatching(old).workArea;
         pet.setBounds({x:Math.max(work.x,Math.min(work.x+work.width-width,old.x+old.width-width)),y:Math.max(work.y,Math.min(work.y+work.height-height,old.y+old.height-height)),width,height});
+      }
+      // A reminder is useless if it stays behind a full-screen video: raise the
+      // pet without taking keyboard focus, then fall back to the user's setting.
+      if(!testMode) {
+        if(alert) {if(typeof pet.setAlwaysOnTop==='function')pet.setAlwaysOnTop(true,'pop-up-menu');if(typeof pet.moveTop==='function')pet.moveTop();}
+        else if(typeof pet.setAlwaysOnTop==='function')pet.setAlwaysOnTop(alwaysOnTop);
       }
       sendState(pet);
     }

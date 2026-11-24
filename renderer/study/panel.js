@@ -20,6 +20,10 @@
   const draftForTask = t => state.intentDrafts.find(d=>d.taskId===t?.id);
   const materialPosition=t=>['external','document'].includes(t.materialMode)?t.material.position:window.OSLearningMaterial.position({taskId:t.id,tab:ui.materialTab});
   const ordinaryLocked = () => !!(ui.busy||ui.flowBusy||ui.closing);
+  const tutorial = () => state?.runtime?.tutorial || null;
+  // 没走完两个案例就不算“正式使用”：首页只显示引导。已有任务不会被删除，
+  // 可以从“我的任务”继续，只是首页暂时不把它们当主入口。
+  const onboardingActive = () => {const x=tutorial();return !!(x&&!x.completedAt);};
   const disabled = safe => ordinaryLocked()&&!safe?' disabled':'';
   const button = (label,action,{primary=false,link=false,safe=false,attrs='',classes=''}={}) =>
     `<button type="button" data-action="${e(action)}" class="${primary?'primary ':''}${link?'link ':''}${classes}"${safe?' data-stop="true"':''}${disabled(safe)} ${attrs}>${e(label)}</button>`;
@@ -57,6 +61,9 @@
     notice.innerHTML=ui.notice?`<span>${e(ui.notice)}</span>${button('收起提示','notice-dismiss',{link:true,safe:true})}`:'';
     const invitation=document.querySelector('#invitation');invitation.hidden=!state.invitation;
     invitation.innerHTML=state.invitation?`<p>${e(state.invitation.message)}</p><div class="actions">${button(state.invitation.node==='resume'?'看看':'写一句','invite-accept')}${button('稍后','invite-later',{link:true,safe:true})}${button('这次不用','invite-reject',{link:true,safe:true})}</div>`:'';
+    const focusBox=document.querySelector('#focus-alert'),alert=state.focus?.alert||null;
+    focusBox.hidden=!alert;
+    focusBox.innerHTML=alert?`<p><strong>专注提醒</strong>：${e(alert.message)}</p><div class="actions">${button('我回来了','focus-back')}${button('再给我5分钟','focus-snooze',{link:true,safe:true})}${button('这次不用','focus-ignore',{link:true,safe:true})}</div>`:'';
   }
   function render() {
     if(!state)return;
@@ -64,20 +71,85 @@
     for(const el of document.querySelectorAll('details[data-detail]')){if(el.open)ui.details.add(el.dataset.detail);else ui.details.delete(el.dataset.detail);}
     renderChrome();
     const views={home:homeView,guide:guideView,plan:planView,study:studyView,resume:resumeView,tasks:tasksView,feedback:feedbackView,reflection:reflectionView,preferences:preferencesView,case:()=>cases.render()};
-    main.innerHTML=`<section class="page ${ui.view==='case'?'case-page':(!activeTask()?.caseId&&['guide','plan','resume','reflection','preferences'].includes(ui.view))?'narrow':''}" data-view="${e(ui.view)}">${ai.banner()}${cases.banner()}${ui.view==='case'?errorBox():''}${state.editorDraft&&!ui.editor?`<div class="resume-draft"><span>有一份尚未确认的编辑已暂存。</span>${button('继续上次编辑','resume-editor',{link:true})}</div>`:''}${ui.view==='home'&&activeTask()&&!activeTask().caseId?cases.chooser():''}${(views[ui.view]||homeView)()}${ui.view==='feedback'&&activeTask()&&!activeTask().caseId?earlierDraftsView(activeTask().id):''}</section>`;
+    main.innerHTML=`<section class="page ${ui.view==='case'?'case-page':(!activeTask()?.caseId&&['guide','plan','resume','reflection','preferences'].includes(ui.view))?'narrow':''}" data-view="${e(ui.view)}">${ai.banner()}${cases.banner()}${ui.view==='case'?errorBox():''}${state.editorDraft&&!ui.editor?`<div class="resume-draft"><span>有一份尚未确认的编辑已暂存。</span>${button('继续上次编辑','resume-editor',{link:true})}</div>`:''}${(views[ui.view]||homeView)()}${ui.view==='feedback'&&activeTask()&&!activeTask().caseId?earlierDraftsView(activeTask().id):''}</section>`;
     overlay.innerHTML=ui.modal?modalView():ai.hasPreview()?ai.previewView():ui.editor?editorView():'';
     for(const el of document.querySelectorAll('details[data-detail]'))if(ui.details.has(el.dataset.detail))el.open=true;
     main.inert=!!(ui.modal||ui.editor||ai.hasPreview());
     document.querySelector('nav').inert=!!(ui.modal||ui.editor||ai.hasPreview());
     ai.restoreSecret();
     restore(saved);
+    positionCoach();
+  }
+  // 新手引导的“指路”层：找到当前页面该点的按钮，画高亮框并放一个说明气泡。
+  // 只提示、不拦截点击；按钮仍由用户自己按。
+  let coachKey='';
+  function removeCoach(){
+    coachKey='';
+    for(const id of ['coach-ring','coach-bubble'])document.getElementById(id)?.remove();
+  }
+  function coachEl(id,className){
+    let el=document.getElementById(id);
+    if(!el){el=document.createElement('div');el.id=id;el.className=className;document.body.appendChild(el);}
+    return el;
+  }
+  function homeCoach(){
+    if(!onboardingActive()||ui.view!=='home')return null;
+    const first=tutorial()?.cases?.hci?.done?2:1,id=first===1?'hci':'control';
+    return {selector:`[data-action="case-open"][data-case-id="${id}"]`,title:`新手引导 · 案例 ${first}/2`,text:'点这张卡上的按钮开始。进入案例后，高亮框会一直指出下一步点哪里。',key:`home:${first}`};
+  }
+  function positionCoach(){
+    if(!state){removeCoach();return;}
+    const info=(!ui.modal&&!ui.editor&&!ai.hasPreview()&&onboardingActive())?(ui.view==='case'?cases.coach?.():homeCoach()):null;
+    const target=info?main.querySelector(info.selector||`[data-action="${info.action}"]`):null;
+    if(!info||!target){removeCoach();return;}
+    const ring=coachEl('coach-ring','coach-ring'),bubble=coachEl('coach-bubble','coach-bubble');
+    if(info.key!==coachKey){coachKey=info.key;target.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'});}
+    const rect=target.getBoundingClientRect(),pad=7;
+    Object.assign(ring.style,{left:(rect.left-pad)+'px',top:(rect.top-pad)+'px',width:(rect.width+pad*2)+'px',height:(rect.height+pad*2)+'px'});
+    ring.hidden=false;
+    const sig=`${info.key}|${info.title}|${info.text}`;
+    if(bubble.dataset.sig!==sig){
+      bubble.dataset.sig=sig;
+      bubble.innerHTML=`<div class="coach-title">${e(info.title)}</div><p>${e(info.text)}</p><div class="coach-actions">${button('跳过引导，直接使用','onboarding-skip',{link:true,safe:true})}</div>`;
+    }
+    bubble.hidden=false;
+    const width=Math.min(340,Math.max(240,rect.width+40));
+    bubble.style.width=width+'px';
+    const height=bubble.offsetHeight||110;
+    let top=rect.bottom+16,left=rect.left+rect.width/2-width/2;
+    if(top+height>window.innerHeight-14)top=Math.max(14,rect.top-height-16);
+    left=Math.max(14,Math.min(window.innerWidth-width-14,left));
+    bubble.style.left=left+'px';bubble.style.top=top+'px';
+  }
+  function tutorialCaseCard(id,title,note,order,primary) {
+    const c=tutorial()?.cases?.[id]||{};
+    const exists=state.tasks.find(v=>v.caseId===id);
+    const mark=value=>value?'✓':'○';
+    return `<div class="card sketch tutorial-case${c.done?' done':''}"><div class="meta-row"><span class="pill">${c.done?'已走完':`第 ${order} 个 · ${primary?'先做这个':'再做这个'}`}</span><span class="small">${e(note)}</span></div><h2>${order}. ${e(title)}</h2>
+      <ul class="tutorial-checklist"><li class="${c.plan?'done':''}">${mark(c.plan)} <strong>第 1 步</strong> · 看材料、模拟拆解并采用大纲</li><li class="${c.step?'done':''}">${mark(c.step)} <strong>第 2 步</strong> · 开始并完成至少一小步</li><li class="${c.review?'done':''}">${mark(c.review)} <strong>第 3 步</strong> · 写一句本块回顾并保存</li></ul>
+      <div class="actions">${button(exists?(c.done?'再回看这个案例':'继续这个案例'):'从这里开始','case-open',{primary:!!primary,link:!primary,attrs:`data-case-id="${e(id)}"`})}</div></div>`;
+  }
+  function onboardingHome() {
+    const x=tutorial(),done=!!x?.allDone,own=state.tasks.find(t=>!t.caseId);
+    const first=!x?.cases?.hci?.done?1:2;
+    return `${heading('先用两个示例，学会这个应用的节奏','按 ① → ② 的顺序做。每个案例完成三步，页面上会用高亮框和箭头指出该点哪个按钮。','新手引导')}${errorBox()}
+      <div class="card"><h2>引导进度</h2><p class="muted">两份演示材料都已在本地，不需要联网，也不会调用模型。走完以后，首页就不再拿演示案例当主入口。</p>
+      <p class="small guide-order">顺序：<strong>① 先做「学习 HCI 课件」</strong>，再 <strong>② 做「梳理自动控制作业」</strong>。中途不想继续，可以随时跳过。</p>
+      <div class="tutorial-track">${tutorialCaseCard('hci','学习 HCI 课件','课件学习 · 97 页',1,first===1)}${tutorialCaseCard('control','梳理自动控制作业','作业准备 · 2 页',2,first===2)}</div>
+      ${done?`<div class="saved"><span class="mark">✓</span><strong>两个案例都走完了</strong><span class="small">接下来可以用它做自己的学习任务。</span></div><div class="actions">${button('开始正式使用','onboarding-complete',{primary:true})}</div>`
+        :`<div class="actions">${button('跳过引导，直接使用','onboarding-skip',{link:true})}</div><p class="small">跳过不会删除任何东西；以后可以在「设置 → 新手引导」重新打开。</p>`}</div>
+      ${own?`<div class="card"><h2>你原来的任务还在</h2><p class="muted">${e(own.title)}</p><p class="small">引导期间首页先展示教程；你的任务、回顾和记录都没有被删除，可以从“我的任务”继续。</p><div class="actions">${button('去我的任务','go-tasks',{link:true})}</div></div>`:''}
+      ${companion('不会的地方可以随时回看，演示案例不会变成你的正式任务。')}`;
   }
   function homeView() {
     const t=activeTask(),r=t&&unfinished(t.id),step=selectedStep(t);
+    if(onboardingActive())return onboardingHome();
     if(t?.caseId)return cases.home(t);
     if(!t)return `${heading('今天想学点什么？','还没想清楚也可以，先从一句话开始。','开始学习')}${errorBox()}
-      ${cases.chooser()}<div class="actions">${button('帮我找个起点','new-guide',{link:true})}</div>
-      <div class="actions">${button('我已有一步，直接写','new-direct',{link:true})}${button('看看暂存意向','go-tasks',{link:true})}</div>${companion('不用一口气规划完整个任务。')}`;
+      <div class="actions">${button('帮我找个起点','new-guide',{primary:true})}</div>
+      <div class="actions">${button('我已有一步，直接写','new-direct',{link:true})}${button('看看暂存意向','go-tasks',{link:true})}</div>
+      ${state.tasks.some(v=>v.caseId)?detail('tutorial-cases','新手教程案例 · 想再熟悉一遍',`${cases.chooser()}<p class="small">这些是演示材料，不算你自己的任务。</p>`):''}
+      ${companion('不用一口气规划完整个任务。')}`;
     let title=r?.status==='running'?'返回本轮':t.checkpoint?'上次留在这里':'眼前的一小步';
     let body=t.checkpoint?`<p class="position">${e(t.material.label)}</p><p class="lead">${e(t.checkpoint.position)}</p><p>${e(t.checkpoint.nextAction)}</p><p class="small">${e(t.checkpoint.source)}</p>`:`<p class="lead">${e(step?.text||'眼前小步还没选，可以去任务里选一条。')}</p>`;
     const action=r?.status==='running'?button('返回本轮','go-study',{primary:true}):t.status==='completed'?button('看看我的任务','go-tasks',{primary:true}):step?button(t.checkpoint?'核对后接着做':'从这一步开始',t.checkpoint?'go-resume':'start-current',{primary:true}):button('选择眼前小步','go-tasks',{primary:true});
@@ -155,9 +227,9 @@
     const tasks=state.tasks.map((v,i)=>`<div class="task-item${v.id===t?.id?' active':''}"><div class="row start"><div class="grow"><h3>${e(v.title)}</h3><span class="small">${e(selectedStep(v)?.text||'还未选眼前小步')}</span></div><span class="task-status">${e({ready:'待开始',active:'已开始',parked:'暂放',completed:'我已标为完成'}[v.status])}</span></div><div class="actions compact">${v.id===t?.id?'<span class="small">当前任务</span>':button('选为当前','task-select',{link:true,attrs:`data-id="${e(v.id)}"`})}${i?button('上移','task-up',{link:true,attrs:`data-id="${e(v.id)}"`}):''}${i<state.tasks.length-1?button('下移','task-down',{link:true,attrs:`data-id="${e(v.id)}"`}):''}</div></div>`).join('');
     const draftHtml=drafts.map(d=>`<div class="task-item"><p class="step-text">${e(d.intent||d.title||'还没写完的意向')}</p><div class="actions compact">${button('继续整理','open-draft',{link:true,attrs:`data-id="${e(d.id)}"`})}${button('删除意向','delete-draft',{link:true,attrs:`data-id="${e(d.id)}"`})}</div></div>`).join('');
     return `${heading('我的任务','顺序、暂放和完成都由你决定。切换当前任务会先暂停原来的本轮。','已确认的计划')}${errorBox()}${t?.caseId?`<div class="actions">${button('返回当前材料计划','show-current-plan',{link:true})}</div>`:''}
-      <div class="split"><div><div class="card"><h2>已确认任务</h2>${tasks||'<p class="muted">还没有确认的任务。先写一句想学的事。</p>'}<div class="actions">${button('新建学习意向','new-guide',{link:true})}</div></div>
+      <div class="split"><div><div class="card"><h2>已确认任务</h2>${tasks||'<p class="muted">还没有确认的任务。先写一句想学的事。</p>'}<div class="actions">${onboardingActive()?'<span class="small">先走完新手引导，再创建自己的任务。</span>':button('新建学习意向','new-guide',{link:true})}</div></div>
       ${detail('intent-drafts',`暂存意向 · ${drafts.length} 份`,draftHtml||'<p class="small">暂时没有。这里的意向不会算作任务。</p>')}</div>
-      <div>${t?taskDetail(t):`<div class="card sketch"><h2>从眼前一步开始</h2><p class="muted">一句愿望、一条首步就够了。</p>${button('帮我找个起点','new-guide',{primary:true})}</div>`}</div></div>${companion('这里没有自动排序，也不会替你判断任务完成。')}`;
+      <div>${t?taskDetail(t):`<div class="card sketch"><h2>从眼前一步开始</h2><p class="muted">一句愿望、一条首步就够了。</p>${onboardingActive()?'<p class="small">先走完新手引导的两份演示材料。</p>':button('帮我找个起点','new-guide',{primary:true})}</div>`}</div></div>${companion('这里没有自动排序，也不会替你判断任务完成。')}`;
   }
   function taskDetail(t) {
     const d=draftForTask(t);
@@ -165,7 +237,7 @@
     const candidates=d?.suggestions?.map((v,i)=>`<div class="candidate"><p>${e(v)}</p>${button('改好后加入','accept-suggestion',{link:true,attrs:`data-index="${i}" data-id="${e(d.id)}"`})}</div>`).join('');
     return `<div class="card sketch"><div class="meta-row"><span class="pill">当前任务</span></div><h2>${e(t.title)}</h2><div class="actions compact">${button('改任务名称','edit-task',{link:true})}${t.status==='completed'||t.status==='parked'?button(t.status==='completed'?'撤回任务完成':'重新取出','reopen-task',{link:true}):button('暂放任务','park-task',{link:true,safe:true})}${t.status!=='completed'?button('我确认任务完成','complete-task',{link:true,safe:true}):''}${button('删除任务','delete-task',{link:true})}</div><hr><h3>已确认的小步</h3><ol class="step-list">${stepHtml||'<li class="muted">还没有小步。</li>'}</ol><div class="actions">${button('添加一条小步','new-step',{primary:true})}</div>${candidates?detail('task-candidates',`未接受候选 · ${d.suggestions.length} 条`,`${candidates}<p class="small">每条都需单独保存，不会自动开始。</p>`):''}</div>`;
   }
-  function emptyTask(title) {return `${heading(title,'先有一项你自己的学习任务，就可以回来继续。')}${button('去写学习意向','new-guide',{primary:true})}`;}
+  function emptyTask(title) {return `${heading(title,'先有一项你自己的学习任务，就可以回来继续。')}${onboardingActive()?'<p class="small">先走完新手引导的两份演示材料，再创建自己的任务。</p>':button('去写学习意向','new-guide',{primary:true})}`;}
   function feedbackView() {
     const t=activeTask();if(!t)return emptyTask('先留一个自己的起点');
     if(t.caseId)return cases.feedback(t);
@@ -217,9 +289,11 @@
     const p=d.proposal&&!ui.proposalDismissed?d.proposal:null;
     const failed=ui.error?.action==='reflection.save';
     const t=activeTask(),stage=d.phase==='stage';
+    const focusPrompts=latestRound(t.id)?.focusPrompts||0;
     return `${heading(stage?'停一下，看看自己懂到哪里':'回看这一轮，留下自己的判断',stage?'先用自己的话解释一句；没想清楚也可以直接说。':'对照原来的目标，留下收获和还没解决的问题。','阶段自检 / 结束复盘','review')}${errorBox()}
       ${d.historyEdit?`<p class="scope">正在修改早前的一份回顾，归属于原来的学习轮次。</p><div class="actions compact">${button('回到本轮自检','current-reflection',{link:true})}</div>`:''}
       <div class="self-check"><p><strong>这次想弄清：</strong>${e(d.contextGoal||t.title)}</p><p class="small">如何检验：${e(d.contextSuccessCheck??(t.successCheck||'合上材料，用自己的话解释，再找例子核对。'))}</p>${stage?'<p class="small">当前是阶段自检，不会替你结束学习。</p>':''}</div>
+      ${focusPrompts?`<div class="self-check focus-line"><p><strong>上一段学习里有 ${focusPrompts} 次被提醒离开学习。</strong></p><p class="small">先回想：每一次分别是什么把你带走的？下次回来时，你准备先做哪一小步？</p></div>`:''}
       ${field('不看材料，我现在能解释什么？','reflection-text','reflection','text',d.text,{textarea:true,rows:3,placeholder:'只写一句即可。说不清楚的地方，也可以如实写下。'})}
       <div class="split">${field('哪里还不确定 · 可不填','reflection-uncertainty','reflection','uncertainty',d.uncertainty,{textarea:true,rows:2,max:2000})}${field('下一步意向 · 还未加入计划','reflection-next','reflection','nextIntent',d.nextIntent,{textarea:true,rows:2,max:1000})}</div>
       <div class="actions compact">${button('给我一个自检问题','self-question',{link:true})}</div>
@@ -230,12 +304,16 @@
       <div class="actions">${button(failed?'重试保存回顾':'只保存回顾','save-reflection',{primary:true})}${button('这次跳过','skip-reflection',{link:true})}</div><p class="scope">保存回顾不会把下一步加入计划，也不会替你结束或开始一轮。</p><div id="draft-state" class="draft-state">${draftStatus(d)}</div>`;
   }
   function preferencesView() {
-    const p=state.prefs;
-    return `${heading('由我决定怎样辅助','AI 辅助、记录和邀请分别设置。','设置')}${errorBox()}${ai.settingsView(ordinaryLocked())}
+    const p=state.prefs,f=state.focus,watch=state.runtime?.watch,tut=tutorial();
+    const tutorialDone=!!tut?.completedAt,tutorialCount=tut?['hci','control'].filter(k=>tut.cases?.[k]?.done).length:0;
+    const watchText=!f.enabled?'当前关闭':watch?.running?'正在读取前台窗口':(watch?.label||'本轮开始学习后才会读取');
+    return `${heading('由我决定怎样辅助','AI 辅助、记录、邀请和专注提醒分别设置。','设置')}${errorBox()}${ai.settingsView(ordinaryLocked())}
       ${state.runtime.pendingSave?`<div class="error"><p>停止已生效，还有一项停止状态待保存。</p><div class="actions compact">${button('重试保存停止状态','retry-persistence',{safe:true})}</div></div>`:''}
-      <div class="card"><h2>本地模拟记录</h2><div class="setting"><label class="checkline"><input type="checkbox" id="pref-recording" data-pref="recording" ${p.recording?'checked':''}>允许本地模拟记录</label><p class="setting-help">只记录本轮在这里切换图解与自测的操作。不会监测其他电脑活动。</p>${p.recording?`<div class="actions compact">${button(p.recordingPaused?'继续模拟记录':'暂停模拟记录','toggle-recording-pause',{safe:!p.recordingPaused,link:true})}${button('关闭模拟记录','stop-recording',{safe:true,link:true})}</div>`:''}</div><p class="small">关闭或暂停记录不会暂停学习，也不影响自己写回顾。已保存的历史线索仍可查看、修正或删除。</p></div>
+      <div class="card"><h2>新手引导</h2><div class="setting"><p class="setting-help">${tutorialDone?(tut?.skipped?'已跳过新手引导，首页直接进入正式使用。':'已完成两个演示案例，首页直接进入正式使用。'):'当前进度：两个案例中已走完 '+tutorialCount+' 个。每个案例需要“采用大纲 → 完成一小步 → 保存一块回顾”。'}</p></div><div class="actions compact">${button('重新走一遍新手引导','onboarding-reset',{link:true})}</div><p class="small">只重置引导状态，已确认的任务、回顾和记录都保留。</p></div>
+      <div class="card"><h2>本地模拟记录</h2><div class="setting"><label class="checkline"><input type="checkbox" id="pref-recording" data-pref="recording" ${p.recording?'checked':''}>允许本地模拟记录</label><p class="setting-help">只记录本轮在这里切换图解与自测的操作。桌面活动见下方“专注提醒”，两者分开保存。</p>${p.recording?`<div class="actions compact">${button(p.recordingPaused?'继续模拟记录':'暂停模拟记录','toggle-recording-pause',{safe:!p.recordingPaused,link:true})}${button('关闭模拟记录','stop-recording',{safe:true,link:true})}</div>`:''}</div><p class="small">关闭或暂停记录不会暂停学习，也不影响自己写回顾。已保存的历史线索仍可查看、修正或删除。</p></div>
       <div class="card"><h2>主动邀请</h2><div class="setting"><label class="checkline"><input type="checkbox" id="pref-invitations" data-pref="invitations" ${p.invitations?'checked':''}>允许主动邀请</label><p class="setting-help">只在你允许的学习节点轻轻问一次；稍后或拒绝后，同一节点不再追问。</p><div class="node-settings">${[['resume','接续时'],['stage','阶段自检时'],['end','结束时']].map(([key,label])=>`<label class="checkline"><input type="checkbox" id="node-${key}" data-node="${key}" ${p.nodes[key]?'checked':''}>${label}</label>`).join('')}</div></div><div class="setting"><label class="checkline"><input type="checkbox" id="pref-quiet" data-pref="quiet" ${p.quiet?'checked':''}>安静学习</label><p class="setting-help">暂时不出现主动邀请。当前轮次和记录许可都保留。</p></div></div>
-      ${detail('classroom-tools','课堂演示工具 · 按需展开',`<p class="small">载入情境会替换本原型的学习内容，并恢复记录与邀请默认关闭；不会改变电脑上的其他文件。</p><div class="tools-grid">${button('载入启动情境','load-startup')}${button('载入接续情境','load-resume')}${button('载入回顾情境','load-reflection')}</div><div class="tool-row"><h3>模拟一次节点</h3><p class="small">仍遵守许可、安静学习、当前轮次和同节点只问一次的规则。</p><div class="tools-grid">${button('模拟阶段邀请','node-stage')}${button('模拟接续邀请','node-resume')}${button('模拟结束邀请','node-end')}</div></div><div class="tool-row"><h3>演示保存失败与修复</h3><div class="tool-actions"><label for="failure-kind">下一次关键保存</label><select id="failure-kind"><option value="plan">确认计划</option><option value="round">开始／保存轮次</option><option value="reflection">保存回顾</option><option value="edit">保存编辑</option><option value="any">任意关键保存</option></select>${button('设置一次保存失败','fail-next')}</div><p class="small">先设置，再回到对应页面保存。暂存文字不会消耗这次模拟失败。</p></div><div class="tool-row"><h3>演示材料打不开</h3><p class="small">让当前任务的材料暂时不可用，再核对接续位置，体验替换材料或自行找到材料。</p>${button('让当前材料暂时不可用','material-unavailable')}</div>`)}${companion('不想被打扰，就按自己的节奏安静学。','rest')}`;
+      <div class="card"><h2>专注提醒</h2><div class="setting"><label class="checkline"><input type="checkbox" id="pref-focus" data-focus="enabled" ${f.enabled?'checked':''}>本轮学习时读取前台窗口</label><p class="setting-help">只读取前台窗口的进程名和标题，用来判断是否停留在抖音、B站等娱乐页面；不截图、不读取页面内容、不保存浏览历史。连续停留约 ${f.thresholdSec} 秒提醒一次，每轮最多 ${f.maxPerRound} 次；还没开始这一轮时要停留约 ${Math.max(f.thresholdSec*3,60)} 秒才提醒。<br>状态：${e(watchText)}</p></div><div class="actions compact">${button('模拟一次娱乐页面提醒','focus-demo')}${button('清除专注提醒记录','focus-clear',{link:true})}</div><p class="small">提醒不抢键盘焦点；回来、再给 5 分钟或这次不用都由你决定，不会被自动记为“分心”。</p></div>
+      ${tutorialDone?'':detail('classroom-tools','课堂演示工具 · 仅引导阶段使用',`<p class="small">载入情境会替换本原型的学习内容，并恢复记录与邀请默认关闭；不会改变电脑上的其他文件。</p><div class="tools-grid">${button('载入启动情境','load-startup')}${button('载入接续情境','load-resume')}${button('载入回顾情境','load-reflection')}</div><div class="tool-row"><h3>模拟一次节点</h3><p class="small">仍遵守许可、安静学习、当前轮次和同节点只问一次的规则。</p><div class="tools-grid">${button('模拟阶段邀请','node-stage')}${button('模拟接续邀请','node-resume')}${button('模拟结束邀请','node-end')}</div></div><div class="tool-row"><h3>演示保存失败与修复</h3><div class="tool-actions"><label for="failure-kind">下一次关键保存</label><select id="failure-kind"><option value="plan">确认计划</option><option value="round">开始／保存轮次</option><option value="reflection">保存回顾</option><option value="edit">保存编辑</option><option value="any">任意关键保存</option></select>${button('设置一次保存失败','fail-next')}</div><p class="small">先设置，再回到对应页面保存。暂存文字不会消耗这次模拟失败。</p></div><div class="tool-row"><h3>演示材料打不开</h3><p class="small">让当前任务的材料暂时不可用，再核对接续位置，体验替换材料或自行找到材料。</p>${button('让当前材料暂时不可用','material-unavailable')}</div>`)}${companion('不想被打扰，就按自己的节奏安静学。','rest')}`;
   }
   function draftStatus(d) {return d.rev===d.savedRev?'文字已暂存；还没有替你确认。':'修改会暂存，确认范围仍由你决定。';}
 
@@ -569,10 +647,16 @@
       case 'stop-recording':await execute('prefs.update',{recording:false});break;
       case 'toggle-recording-pause':await execute('prefs.update',{recordingPaused:!state.prefs.recordingPaused});break;
       case 'retry-persistence':await execute('persistence.retry');break;
+      case 'onboarding-skip':openModal({title:'跳过新手引导？',message:'可以直接进入正式使用。两份演示案例会留在「我的任务」里，随时可以回看。',items:['跳过不会删除任何任务、回顾或记录。','以后可以在「设置 → 新手引导」重新打开。'],cancelLabel:'继续引导',confirmLabel:'跳过，直接使用',confirm:async()=>{const result=await execute('onboarding.skip');if(result.ok){closeModal();ui.allTasks=false;showNotice('已跳过引导，可以创建自己的任务了。');setView('home');}else{ui.modal.error=result.error;render();}}});break;
+      case 'onboarding-complete':{const result=await execute('onboarding.complete');if(result.ok){ui.allTasks=false;showNotice('新手引导完成：现在可以创建自己的学习任务了。演示案例收在“我的任务”里。');setView('home');}break;}
+      case 'onboarding-reset':{const result=await execute('onboarding.reset');if(result.ok)showNotice('新手引导已重新打开；已有任务和回顾都保留。');break;}
       case 'invite-accept':case 'invite-later':case 'invite-reject':await execute('invitation.respond',{response:action.slice(7)});break;
       case 'load-startup':case 'load-resume':case 'load-reflection':loadScenario(action.slice(5));break;
       case 'node-stage':case 'node-resume':case 'node-end':{const result=await execute('demo.node',{node:action.slice(5)});if(result.ok&&result.data?.suppressed)showNotice('未出现邀请：可能尚未许可、正在安静学习、当前轮次不在此节点、同节点已问过，或正在编辑。');else if(result.ok)showNotice('已模拟当前节点；你可以自己决定要不要回应。');break;}
       case 'fail-next':{const kind=document.querySelector('#failure-kind').value;const result=await execute('demo.failNext',{kind});if(result.ok)showNotice('已设置：下一次对应的关键保存会失败一次，之后可在原处重试。');break;}
+      case 'focus-demo':{const result=await execute('focus.demo',{app:'bilibili',label:'哔哩哔哩',seconds:35});if(result.ok&&result.data?.suppressed)showNotice('没有出现提醒：可能已有一条专注提醒待回应，或正在“安静学习”。');else if(result.ok)showNotice('已模拟一次专注提醒，桌宠会弹出提示。');break;}
+      case 'focus-back':case 'focus-snooze':case 'focus-ignore':await execute('focus.respond',{response:action.slice(6)});break;
+      case 'focus-clear':await execute('focus.clear');break;
       case 'material-unavailable':if(!t){showNotice('先载入一个含任务的情境，再演示材料失效。');break;}if((await execute('material.replace',{taskId:t.id,id:t.material.id,label:t.material.label,position:t.material.position,available:false})).ok)showNotice('当前材料已设为暂时不可用。可回到开始，核对后继续。');break;
       case 'cancel-modal':closeModal();break;
       case 'confirm-modal':if(ui.modal?.confirm)await ui.modal.confirm();break;
@@ -627,6 +711,7 @@
       execute('prefs.update',{[key]:value}).catch(()=>{});return;
     }
     if(el.dataset.node){const value=el.checked;if(ordinaryLocked()&&value){el.checked=state.prefs.nodes[el.dataset.node];return;}execute('prefs.update',{nodes:{[el.dataset.node]:value}}).catch(()=>{});return;}
+    if(el.dataset.focus){const value=el.checked;if(ordinaryLocked()){el.checked=state.focus?.enabled;return;}execute('focus.update',{[el.dataset.focus]:value}).catch(()=>{});return;}
     if(el.dataset.model==='editor'&&el.dataset.field){
       if(ui.closing){el.value=ui.editor?.[el.dataset.field]??'';return;}
       ui.editor[el.dataset.field]=el.value;ui.editor.dirty=true;ui.editor.rev++;scheduleDraft();
@@ -648,6 +733,9 @@
       else if(!event.shiftKey&&(document.activeElement===last||!dialog.contains(document.activeElement))){event.preventDefault();first?.focus();}
     }
   });
+  let coachFrame=null;
+  main.addEventListener('scroll',()=>{if(coachFrame)return;coachFrame=requestAnimationFrame(()=>{coachFrame=null;positionCoach();});},{passive:true});
+  window.addEventListener('resize',()=>positionCoach());
   if(!api){main.innerHTML='<div class="error">学习面板暂时没有连接成功。请重新从 StudyPet 打开。</div>';return;}
   ai.init();
   api.onState(next=>{

@@ -8,7 +8,11 @@ const CONCEPT_FIRST_STEP = '先看一个进程里两个线程的示意图';
 const CONCEPT_SUGGESTIONS = ['比较进程共享区与每个线程自己的栈', '用一个双线程程序例子解释资源归属'];
 function emptyState() {
   return {schemaVersion:1,scenario:'startup',activeTaskId:null,startupDraftId:null,editorDraft:null,tasks:[],intentDrafts:[],caseDrafts:{},reflectionDrafts:{},reflectionDraftArchive:[],rounds:[],events:[],reflections:[],
-    prefs:{recording:false,recordingPaused:false,invitations:false,nodes:{resume:true,stage:true,end:true},quiet:false},invitation:null,consumedInvitations:[]};
+    // 首次启动必须先走完两份演示材料，才进入「正式使用」；completedAt 一旦写入，
+    // 首页就不再拿演示案例当主入口。
+    onboarding:{version:1,completedAt:null,skipped:false},
+    prefs:{recording:false,recordingPaused:false,invitations:false,nodes:{resume:true,stage:true,end:true},quiet:false},invitation:null,consumedInvitations:[],
+    focus:{enabled:true,alert:null,lastPromptAt:null,snoozeUntil:null,muteUntil:null,muteRoundId:null,idlePrompts:0,maxPerRound:3,thresholdSec:20,cooldownSec:180,records:[]}};
 }
 function material(id='practice') {return {id,label:id==='tutorial'?'资源分类自测':'进程与线程图解',position:id==='tutorial'?'第2题／线程的调用栈':'双线程示意图／共享区',available:true};}
 function scenarioState(scenario,stamp,id) {
